@@ -1,3 +1,5 @@
+import numpy as np
+
 class isec355:
     """
     An extension class for MDAnalysis.
@@ -10,7 +12,7 @@ class isec355:
         input Universe: MDAnalysis Universe.
         """
         self.u = Universe
-        self.lipnames = [ x for x in set(a.u.residues.resnames) if "PC" in x ]
+        self.lipnames = [ x for x in set(self.u.residues.resnames) if "PC" in x ]
         
     def __repr__(self):
         resname_string = "<Residues are " + ", ".join(set(self.u.residues.resnames)) + ">\n"
@@ -39,7 +41,7 @@ class isec355:
         """ returns apl and stadard error of apl.
         """
         boxx = self.get_box_x()
-        _, n_samples = lobby.corr_time(boxx)
+        _, n_samples = isec355.corr_time(boxx)
         apl = np.average(boxx) ** 2 / 100 # in angstrom^2
         apl_se = np.std(boxx)/np.sqrt(n_samples)
         
@@ -77,7 +79,7 @@ class isec355:
         for t_prime in range(1, _length):
             c_f += [ np.average((array[:-t_prime]-_mean)*(array[t_prime:]-_mean)) / _variance]
         
-        x_zero, y_zero = get_first_nearest_zero(c_f)
+        x_zero, y_zero = isec355.get_first_nearest_zero(c_f)
         n_samples = round(_length/x_zero)
         
         return c_f, n_samples
