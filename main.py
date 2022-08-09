@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class isec355:
     """
     An extension class for MDAnalysis.
@@ -7,18 +8,19 @@ class isec355:
     length of side of x-y plane.
     """
     
-    def __init__(self, Universe):
+    def __init__(self, Universe, ts=2):
         """ 
         input Universe: MDAnalysis Universe.
         """
         self.u = Universe
         self.lipnames = [ x for x in set(self.u.residues.resnames) if "PC" in x ]
+        self.dt = ts * Universe.trajectory.dt
         
     def __repr__(self):
         resname_string = "<Residues are " + ", ".join(set(self.u.residues.resnames)) + ">\n"
         sim_info = "<contains {} atoms, {} frames with {} ps timesteps>".format(self.u.atoms.n_atoms,
                                                                                len(self.u.trajectory),
-                                                                                self.u.dt)
+                                                                                self.dt)
         return resname_string + sim_info
     
     def get_box_x(self):
@@ -79,7 +81,7 @@ class isec355:
         for t_prime in range(1, _length):
             c_f += [ np.average((array[:-t_prime]-_mean)*(array[t_prime:]-_mean)) / _variance]
         
-        x_zero, y_zero = isec355.get_first_nearest_zero(c_f)
+        x_zero, y_zero = isec355.first_nearest_zero(c_f)
         n_samples = round(_length/x_zero)
         
         return c_f, n_samples
