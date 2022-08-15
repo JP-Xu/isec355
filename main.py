@@ -2,6 +2,9 @@ import numpy as np
 import os
 import natsort
 import MDAnalysis
+import regex as re
+from scipy import stats
+
 
 class Isec355(MDAnalysis.core.universe.Universe):
     """
@@ -50,10 +53,10 @@ class Isec355(MDAnalysis.core.universe.Universe):
         return 
     
     def get_apl(self):
-        """ returns a list of apl and stadard error of apl.
+        """ returns the mean apl and stadard error of simulation.
         """
         boxx = self.get_box_x()
-        _, n_samples = Isec355.corr_time(boxx)
+        _, n_samples = self.corr_time(boxx)
         apl = np.average(boxx) ** 2 / 100 # in angstrom^2
         apl_se = np.std(boxx)/np.sqrt(n_samples)
         
@@ -62,6 +65,9 @@ class Isec355(MDAnalysis.core.universe.Universe):
     def get_thickness(self):
         """ returns a list of thickness and standard error of thickness.
         """
+
+
+
 
         
     ## Calculate autocorrelation function.
@@ -143,7 +149,65 @@ def get_files(ext):
     extfiles = natsort.natsorted(extfiles, alg=natsort.ns.REAL)
     return extfiles
 
+def chunk(array, arr_size=1):
+    """ returns a list contains arr_size of sublists of its input array
+    """
+    result = []
+    arr_length = len(array)
+    sub_array = range(0, arr_length, int( (arr_length - 1) / arr_size))
+    for i in range(len(sub_array) - 1):
+        result += [array[ sub_array[i] : sub_array[i+1]]]
+
+    return result
+
+def get_ka(autocorr = True):
+    """ returns the compressibility modulus calculated based on apl.
+    autocorrelation is used for splitting the apl of whole simulation into several
+    parts, then calculate ka of each part.
+    """
+    ## Create some variables
+    all_apl_list = []
+    all_n_samples = []
+    kas = [] # stores ka of each chunk
+    ## Searching for dcd and psf files.
+    dcdfiles = get_files('dcd')
+    psffiles = get_files('psf')
+    if dcdfiles == []:
+        raise FileNotFoundError("No dcd files start with gamma found in current folder.")
+    elif psffiles == []:
+        raise FileNotFoundError("No psf file found in current folder.")
+    elif len(psffiles) > 1:
+        raise FileExistsError("There are multiple psf files in current folder, be sure to have only one.")
+    ## dcd files must starts with gamma
+    dcdfiles = [ x for x in dcdfiles if x.startswith('gamma')]
+    gammas = list(set([ int(re.findall('-?[0-9]+', x)[0]) for x in dcdfiles ]))
+    gammas = natsort.natsorted(gammas, alg=natsort.ns.REAL)
+    print(gammas)
+    print("Calculating compressibility modulus based on results of {} surface tensions.".format(", ".join([ str(x) for x in gammas])))
+    ## loop through results of each surface tension
+    for gamma in gammas:
+        r = re.compile('gamma'+str(gamma))
+        dcdfiles_in_gamma = list( filter( r.match, dcdfiles))
+        lobby = Isec355(psffiles[0], dcdfiles_in_gamma)
+        # get a list of apl
+        apl_list = [ x ** 2 / 100 for x in lobby.get_box_x() ] ## a list of apl in Angstrom^2
+        all_apl_list += [apl_list]
+        # get number of independent frames
+        _, n_samples = lobby.corr_time(apl_list)
+        all_n_samples += [n_samples]
+    # number of chunks to split:
+    min_n_samples = min(all_n_samples)
+    all_apl_list = [ chunk(x, min_n_samples) for x in all_apl_list ]
+    ## Calculate mean apl for each chunk.
+    all_apl_list = [ np.average(x) for y in all_apl_list for x in y ]
+    all_apl_list = np.array(all_apl_list).reshape((len(gammas), -1))
+    # Loop each column of different gamma apls and apply linear regression
+    for i in range(min_n_samples):
+        area_strain = [ y[i] / all_apl_list[0][i] - 1  for y in all_apl_list ]
+        ka = stats.linregress(area_strain, gammas)
+        kas.append(ka.slope)
     
+    return [np.average(kas), np.std(kas)/np.sqrt(min_n_samples)]
 
 
 
@@ -155,4 +219,6 @@ if __name__ == "__main__":
     os.chdir('65DODH')
     dcdfiles = get_files('dcd')
     print(dcdfiles)
+    ka = get_ka()
+    print(ka)
     os.chdir('../')
