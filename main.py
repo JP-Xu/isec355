@@ -1,3 +1,4 @@
+from ast import Is
 import numpy as np
 import os
 import natsort
@@ -20,6 +21,7 @@ class Isec355(MDAnalysis.core.universe.Universe):
         2. lipnames: lipid names in file.
         1. dt: time between frames.
         """
+        np.seterr(all='raise') # raise any warning as an error in numpy.
         super().__init__(struc_file, traj_file)
         self.lipnames = [ x for x in set(self.residues.resnames) if "PC" in x ]
         self.dt = ts * self.trajectory.dt
@@ -61,11 +63,53 @@ class Isec355(MDAnalysis.core.universe.Universe):
         apl_se = np.std(boxx)/np.sqrt(n_samples)
         
         return apl, apl_se
+
+    @staticmethod
+    def aveNearTwo(array: np.array) -> np.array:
+        a = array[:-1]
+        b = array[1:]
+        return ( a + b ) /2
+
+    @staticmethod
+    def repair_bilayer(u, frame):
+        """ This function repairs bilayer based on the status of water. If there's only one layer of water,
+        bilayer must be broken.
+        input:
+            1. u: universe of specific frame.
+            2. frame: frame of current frame stores dimension.
+        no returns, modify coordinates of current frame to make bilayer whole.
+        """
+        water_coors = u.select_atoms('resname TIP3').positions
+        dens_, coors_ = np.histogram(water_coors[:,2], bins=30)
+
+        # if there's only one layer of water bulk, create a blank space
+        if 0 not in dens_:
+            water_coors[:,2][water_coors[:,2] < 0 ] += frame.dimensions[2]  # move water lower than 0 plane one z pbc up.
+            dens_, coors_ = np.histogram(water_coors[:,2], bins=30)
+            coors_ = u.aveNearTwo(coors_)
+            blank_z_coor = np.average(coors_[ dens_ == 0 ])
+            u.atoms.translate([0, 0, -blank_z_coor]).wrap()
+            
+        elif dens_[0] != 0 and dens_[-1] != 0:
+            coors_ = u.aveNearTwo(coors_)
+            blank_z_coor = np.average(coors_[ dens_ == 0 ])
+            u.atoms.translate([0, 0, -blank_z_coor]).wrap()
+            # If there are two layers of water bulk, find the center z coor of blank bulk.
+            
+        elif dens_[0] == 0 or dens_[-1] == 0:
+            coors_ = u.aveNearTwo(coors_)
+            blank_z_coor = np.average(coors_[ dens_ == 0 ])
+            u.atoms.translate([0, 0, -blank_z_coor]).wrap()
+                
+            
         
     def get_thickness(self):
-        """ returns a list of thickness and standard error of thickness.
+        """ returns a list of thickness and standard error of thickness. Calculated in terms of phosphorous atoms.
         """
-
+        l1, l1_std, l2, l2_std = self.get_P_z_average()
+        thickness = abs(l1 - l2)
+        std = thickness * np.sqrt(l1_std ** 2 + l2_std ** 2)
+        return [thickness, std]
 
 
 
@@ -182,8 +226,9 @@ def get_ka(autocorr = True):
     dcdfiles = [ x for x in dcdfiles if x.startswith('gamma')]
     gammas = list(set([ int(re.findall('-?[0-9]+', x)[0]) for x in dcdfiles ]))
     gammas = natsort.natsorted(gammas, alg=natsort.ns.REAL)
-    print(gammas)
-    print("Calculating compressibility modulus based on results of {} surface tensions.".format(", ".join([ str(x) for x in gammas])))
+    print("Current composition: ".format())
+    print("Surface tensions considered: ".format(", ".join([ str(x) for x in gammas])))
+    print("DCD files used: , PSF file used: .".format(", ".join(dcdfiles), psffiles[0]))
     ## loop through results of each surface tension
     for gamma in gammas:
         r = re.compile('gamma'+str(gamma))
@@ -192,22 +237,31 @@ def get_ka(autocorr = True):
         # get a list of apl
         apl_list = [ x ** 2 / 100 for x in lobby.get_box_x() ] ## a list of apl in Angstrom^2
         all_apl_list += [apl_list]
+
+        if autocorr:
         # get number of independent frames
-        _, n_samples = lobby.corr_time(apl_list)
-        all_n_samples += [n_samples]
-    # number of chunks to split:
-    min_n_samples = min(all_n_samples)
-    all_apl_list = [ chunk(x, min_n_samples) for x in all_apl_list ]
-    ## Calculate mean apl for each chunk.
-    all_apl_list = [ np.average(x) for y in all_apl_list for x in y ]
-    all_apl_list = np.array(all_apl_list).reshape((len(gammas), -1))
-    # Loop each column of different gamma apls and apply linear regression
-    for i in range(min_n_samples):
-        area_strain = [ y[i] / all_apl_list[0][i] - 1  for y in all_apl_list ]
+            _, n_samples = lobby.corr_time(apl_list)
+            all_n_samples += [n_samples]
+
+    if autocorr:
+        # number of chunks to split:
+        min_n_samples = min(all_n_samples)
+        all_apl_list = [ chunk(x, min_n_samples) for x in all_apl_list ]
+        ## Calculate mean apl for each chunk.
+        all_apl_list = [ np.average(x) for y in all_apl_list for x in y ]
+        all_apl_list = np.array(all_apl_list).reshape((len(gammas), -1))
+        # Loop each column of different gamma apls and apply linear regression
+        for i in range(min_n_samples):
+            area_strain = [ y[i] / all_apl_list[0][i] - 1  for y in all_apl_list ]
+            ka = stats.linregress(area_strain, gammas)
+            kas.append(ka.slope)
+        return [np.average(kas), np.std(kas)/np.sqrt(min_n_samples)]
+        
+    else:
+        all_apl_list = [ np.average(x) for x in all_apl_list ]
+        area_strain = [ x / all_apl_list[0] - 1 for x in all_apl_list ]
         ka = stats.linregress(area_strain, gammas)
-        kas.append(ka.slope)
-    
-    return [np.average(kas), np.std(kas)/np.sqrt(min_n_samples)]
+        return [ka.slope, ka.stderr]
 
 
 
@@ -216,9 +270,8 @@ if __name__ == "__main__":
     download_folder = "/Users/jiamingxu/Downloads"
     folders = get_bilipid_pathes(download_folder)
     print(folders)
-    os.chdir('65DODH')
-    dcdfiles = get_files('dcd')
-    print(dcdfiles)
-    ka = get_ka()
-    print(ka)
-    os.chdir('../')
+    for folder in folders:
+        os.chdir(folder)
+        ka = get_ka(True)
+        print(folder, ka)
+        os.chdir('../')
