@@ -7,13 +7,12 @@ import csv
 # change working path
 # automatically and save to csv file with header:
 # apl  se  composition  gamma
-csv_header = ['APL', 'Error', 'Composition', 'Gamma'] 
+csv_header = ['std', 'Composition', 'Gamma'] 
 csv_data = []
 
 # Folder names
 download_folder = "/Users/jiamingxu/Downloads/"
 folders = get_bilipid_pathes(download_folder)
-apl_results = []
 ## Looping all folders just scaned
 
 for folder in folders:
@@ -25,10 +24,12 @@ for folder in folders:
     psffiles = get_files('psf')
     gammas = [-7, 0, 7, 15]
     ts = 2 #int(input("Enter the timestep of simulation in fs/step: "))
-
+    
     for gamma in gammas:
 
         dcdfiles_in_gamma = [ file for file in dcdfiles if file.startswith('gamma' + str(gamma)) ]
+
+
         ## Check if there is one or more than one psf file in the path.
 
         #if len(psffiles) == 1:
@@ -61,16 +62,15 @@ for folder in folders:
         #u = mda.Universe("step5_input.psf", dcdfiles_in_gamma)
         ## using isec355 to get apl and standard error.
         lobby = Isec355("step5_input.psf", dcdfiles_in_gamma)
-        apl_result = lobby.get_apl()
-        apl_results.append(list(apl_result) + [folder] + [gamma])
-
+        l1, std1, l2, std2 = lobby.get_P_z_average()
+        csv_data.append( [np.sqrt(std1 ** 2 + std2 ** 2 )] + [folder] + [gamma])
     os.chdir("../")
 
-with open('apl.csv', 'w', encoding='UTF8', newline='') as f:
+with open('surface_std.csv', 'w', encoding='UTF8', newline='') as f:
     writer = csv.writer(f)
 
     # write the header
     writer.writerow(csv_header)
 
     # write multiple rows
-    writer.writerows(apl_results)
+    writer.writerows(csv_data)
