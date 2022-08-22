@@ -21,11 +21,25 @@ class Isec355(MDAnalysis.core.universe.Universe):
         2. lipnames: lipid names in file.
         1. dt: time between frames.
         """
+        self.struc_file = struc_file
+        self.traj_file = traj_file
         np.seterr(all='raise') # raise any warning as an error in numpy.
         super().__init__(struc_file, traj_file)
         self.lipnames = [ x for x in set(self.residues.resnames) if "PC" in x ]
         self.dt = ts * self.trajectory.dt
+
+    @property
+    def uniq_resname(self):
+        """ returns a list of resnames. """
+        return list(set(self.residues.resnames))
+
+    def atoms_in_residues(self, resname):
+        """ returns a list containing atom names in its input residue.
+        """
+        assert resname in self.uniq_resname , "Input resname isn't found in this trajectory."
+        return np.unique(self.select_atoms('resname %s'%resname).atoms.names)
         
+
     def __repr__(self):
         resname_string = "<Residues are " + ", ".join(set(self.residues.resnames)) + ">\n"
         sim_info = "<contains {} atoms, {} frames with {} ps timesteps>".format(self.atoms.n_atoms,
@@ -113,8 +127,13 @@ class Isec355(MDAnalysis.core.universe.Universe):
 
 
 
-        
-    ## Calculate autocorrelation function.
+    #####
+    ##        
+    ##   Calculate autocorrelation function.
+    ##
+    #####
+
+
     @staticmethod
     def corr_time(array):
         """ 
@@ -159,6 +178,70 @@ class Isec355(MDAnalysis.core.universe.Universe):
                 return [i, value]
             
 
+
+    ###
+    #
+    #  Calculate order parameter of acyl chains.
+    #
+    ###
+
+    def order_param(self, init_frame = 0, final_frame = -1):
+        """ returns the order parameter of two acyl chains.
+        inputs init_frame, final_frame: two integers define start and final frame to analyze
+
+        """
+        def Sc(v1, v2):
+            norm = np.array([0, 0, 1])
+            """ returns order parameter of two numpy arrays contain x-y-z coordinates.
+            inputs"""
+            cos_theta = (np.dot(v1 - v2, norm) / (np.linalg.norm(v1 - v2, axis=2)))
+            return 0.5 * (3 * cos_theta **2 - 1)
+
+        c_names_dict = {}
+        op_results = {}
+        ## Get lipid resnames 
+        lip_names = [ x for x in self.uniq_resname if 'PC' in x ]
+        print(lip_names)
+        ## Get acyl chain carbon atom names
+        for lip_name in lip_names:
+            chain1_atom_names = natsort.natsorted(re.findall( r'C2[0-9]+', ','.join(self.atoms_in_residues(lip_name))))
+            chain2_atom_names = natsort.natsorted(re.findall( r'C3[0-9]+', ','.join(self.atoms_in_residues(lip_name))))
+            c_names_dict[lip_name] = {'c1': chain1_atom_names, 'c2': chain2_atom_names,
+                                      'c1_string': "resname %s and "%lip_name + "(name " + " or name ".join(chain1_atom_names) + ")",
+                                      'c2_string': "resname %s and "%lip_name + "(name " + " or name ".join(chain2_atom_names) + ")"}
+            op_results[lip_name] = [[], []]
+        ## Get repaired bilayer.
+        for frame in self.trajectory[init_frame:final_frame]:
+            try:
+                Isec355.repair_bilayer(self, frame) # try to make bilayer whole
+            
+            except FloatingPointError:
+                print("Cannot reshape bilayer, skip frame {} for trajectory {}.".format(frame.frame, self.traj_file))
+                continue
+            
+            ## Loop through lipids
+            for lip_name in lip_names:
+                ## Get positions of carbons in tails.
+                c1_pos = self.select_atoms(c_names_dict[lip_name]['c1_string']).positions
+                c2_pos = self.select_atoms(c_names_dict[lip_name]['c2_string']).positions
+                ## Handle these positions. there are n - 2 bonds among n carbon atoms. therefore, the size of
+                ## order parameter would be n - 2.
+
+                ## Loop through the first acyl
+                y1 = self.select_atoms(c_names_dict[lip_name]['c1_string']).positions.reshape(( -1, len(c_names_dict[lip_name]['c1']), 3))
+                y2 = self.select_atoms(c_names_dict[lip_name]['c2_string']).positions.reshape(( -1, len(c_names_dict[lip_name]['c2']), 3))
+
+                op_results[lip_name][0].append(np.average(Sc(y1[:,:-2], y1[:,2:]), axis=0))
+                op_results[lip_name][1].append(np.average(Sc(y2[:,:-2], y2[:,2:]), axis=0))
+                
+        for lip_name in lip_names:    
+            op_results[lip_name] = np.average(op_results[lip_name], axis=1)
+
+        return op_results
+
+
+
+        
 
 def get_bilipid_pathes(path):
     """ returns folder names contains results of bi-lipid bilayers under its input directory.
