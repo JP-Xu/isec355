@@ -5,6 +5,7 @@ import natsort
 import MDAnalysis
 import regex as re
 from scipy import stats
+import csv
 
 
 class Isec355(MDAnalysis.core.universe.Universe):
@@ -201,7 +202,7 @@ class Isec355(MDAnalysis.core.universe.Universe):
         op_results = {}
         ## Get lipid resnames 
         lip_names = [ x for x in self.uniq_resname if 'PC' in x ]
-        print(lip_names)
+        #print(lip_names)
         ## Get acyl chain carbon atom names
         for lip_name in lip_names:
             chain1_atom_names = natsort.natsorted(re.findall( r'C2[0-9]+', ','.join(self.atoms_in_residues(lip_name))))
@@ -237,7 +238,7 @@ class Isec355(MDAnalysis.core.universe.Universe):
         for lip_name in lip_names:    
             op_results[lip_name] = np.average(op_results[lip_name], axis=1)
 
-        return op_results
+        return c_names_dict, op_results
 
 
 
@@ -258,7 +259,7 @@ def get_bilipid_pathes(path):
     os.chdir(path)
     result = []
     for path in os.scandir():
-        if path.is_dir() and re.match("[0-9]+D[YO]D[HDLM]", path.name):
+        if path.is_dir() and re.match("[0-9]+D[YO][PD][CHDLM]", path.name):
             result += [path.name]
 
     pathes_for_sorting = [ re.sub('[0-9]+', "", x) + re.match('[0-9]+', x).group(0) for x in result ]
