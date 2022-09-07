@@ -142,9 +142,11 @@ class Isec355(MDAnalysis.core.universe.Universe):
         input array: a numeric array.
         return: index of 0 point in its input array, numeric.
         
+        Algorithms from https://doi.org/10.33011/livecoms.1.1.5067.
+
         Returns:
         c_f: aotucorrelation function. Can be used for plotting.
-        n_samples: number of samples of simulation trajectory calculated by autocorrelation.
+        n_ind: number of independent samples. 
 
         variables:
         _mean, mean of its input 
@@ -153,7 +155,6 @@ class Isec355(MDAnalysis.core.universe.Universe):
         _length, length of its input array which is the length of simulation.
 
         """
-
 
         _mean = np.average(array)
         _variance = np.var(array)
@@ -165,9 +166,9 @@ class Isec355(MDAnalysis.core.universe.Universe):
             c_f += [ np.average((array[:-t_prime]-_mean)*(array[t_prime:]-_mean)) / _variance]
         
         x_zero, y_zero = Isec355.first_nearest_zero(c_f)
-        n_samples = round(_length/x_zero)
+        n_ind = _length//(1+2*np.sum(c_f[:x_zero]))
         
-        return c_f, n_samples
+        return c_f, n_ind
      
     @staticmethod
     def first_nearest_zero(array):
