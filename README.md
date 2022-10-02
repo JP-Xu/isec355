@@ -1,4 +1,5 @@
 # isec355 - An extension for MDAnalysis package.
+Named from Northeastern University.
 
 ## Aims
 This python package is used for lipid bilayer MD simulation results. Properties could be calculated by this work:
