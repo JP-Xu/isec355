@@ -6,6 +6,14 @@ from skimage import filters
 from scipy.ndimage import gaussian_filter
 import csv
 
+#
+# This script can calculated the fluorescence line width by drawing three random vertical lines in a 2D confocal image.
+# ostu algorithm is used for mask, and gaussian blur radius (standard deviation) is 2.
+#
+# Usage:
+#       Run this script, all channels (dimensions should be changed based on real images), and results will save to a csv file.
+
+
 def get_czi_files():
     """ This function returns all czi files under current folder as a list.
     """
