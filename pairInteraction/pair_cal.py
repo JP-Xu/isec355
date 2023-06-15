@@ -32,15 +32,35 @@ def update_pdb_Bfactor(filename):
 
     for rs in pd.unique(u.atoms.resnames):
         # regex checks if it's a lipid
-        if re.search('(PC|PA|PE|PS|PG)', rs):
+        if re.search('(PC|PA|PE|PS|PG|TA)', rs):
             lipid_atom_names = pd.unique(u.select_atoms('resname '+rs).names)
-            P_index = np.where(lipid_atom_names == 'P')[0][0]
-            C1_index = np.where(lipid_atom_names == 'C1')[0][0]
+            try: 
+                P_index = np.where(lipid_atom_names == 'P')[0][0] 
+            except: 
+                P_index = 0
+
+            try:
+                C1_index = np.where(lipid_atom_names == 'C1')[0][0]
+            except:
+                C1_index = 0
+
+            try:
+                C2_index = np.where(lipid_atom_names == 'C2')[0][0]
+            except:
+                C2_index = 0
+            
             C32_index = np.where(lipid_atom_names == 'C32')[0][0]
-            if P_index != 0:
+
+            if P_index != 0:  # If there is a phosphate group, like PA, PC, PE, PG and PS.
                 selection_strings[rs+'_head_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[:P_index]) + ')'
-            selection_strings[rs+'_phos_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[P_index:C1_index]) + ')'
-            selection_strings[rs+'_glyc_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[C1_index:C32_index]) + ')'
+                selection_strings[rs+'_phos_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[P_index:C1_index]) + ')'
+                selection_strings[rs+'_glyc_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[C1_index:C32_index]) + ')'
+            
+            elif C2_index != 0:
+                selection_strings[rs+'_head_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[:C2_index]) + ')'
+                selection_strings[rs+'_glyc_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[C2_index:C32_index]) + ')'
+            
+            
             selection_strings[rs+'_tail_string'] = 'resname ' + rs + ' and (name ' + ' or name '.join(lipid_atom_names[C32_index:]) + ')'
         else:
             selection_strings[rs] = 'resname ' + rs
